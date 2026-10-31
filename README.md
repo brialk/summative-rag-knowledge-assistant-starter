@@ -149,7 +149,7 @@ In this README, replace the placeholder section below with a short description o
 
 #### Response: Problem Definition
 
-Replace this section with 3–5 sentences that define the problem your assistant helps solve.
+New employees and support agents often waste time hunting through onboarding notes, support guides and policies to find one answer. This assistant lets them type a plain-English question and get a short answer based only on the approved knowledge base. Every answer comes with the source documents it used, so people can check the original text instead of trusting a confident-sounding reply. If the knowledge base does not contain the answer, the assistant says so instead of guessing.
 
 ---
 
@@ -181,19 +181,22 @@ You do not need to build a new frontend from scratch. Use the provided frontend 
 
 #### Response: Design Notes
 
-Replace this section with a short outline or diagram showing how the parts of your application connect.
-
-Example:
-
 ```text
 User browser
-→ React frontend
-→ Flask /api/ask route
-→ RAG workflow
-→ Vector database retrieval
-→ Model service
-→ Answer and sources returned to frontend
+→ React frontend (client/src/App.jsx, POST /api/ask)
+→ Flask /api/ask route (server/app.py): validates the question
+→ RAG workflow (server/rag_service.py)
+→ Vector database retrieval (server/vector_store.py + Chroma)
+   - question is embedded with Ollama (nomic-embed-text)
+   - the closest chunks are returned with source metadata
+→ Prompt is built from the question + retrieved chunks
+→ Model service (Ollama llama3.2, /api/generate)
+→ { answer, sources } returned to the frontend and displayed
 ```
+
+- Knowledge base files live in `server/knowledge_base/` and are split into overlapping 120-word chunks by `documents.py`.
+- Each chunk is stored in Chroma with `source`, `title` and `chunk_index` metadata so the frontend can show sources.
+- Settings (models, paths, TOP_K, temperature) come from `server/.env`.
 
 ---
 
@@ -232,13 +235,7 @@ Refine your code based on what you find.
 
 #### Response: Sample Questions and Observations
 
-Replace this section with at least three sample questions and a short note about the answer and sources returned.
-
-| Sample Question | Was the Answer Relevant? | Were Useful Sources Returned? | Notes |
-|---|---|---|---|
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
+See the Sample Questions section below for the results table.
 
 ---
 
@@ -304,6 +301,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 ```
+
+After activating, confirm you are really using the project's virtual environment:
+
+```bash
+which python    # should end with server/.venv/bin/python
+hash -r
+```
+
+If you see `ModuleNotFoundError` (for example `No module named 'flask'`) or `Error: No such command 'run'`, the virtual environment is not active. Run `source .venv/bin/activate` again in that terminal and re-run `pip install -r requirements.txt`.
 
 On Windows PowerShell, activate the virtual environment with:
 
@@ -464,26 +470,14 @@ You may make small edits to the source files if allowed or instructed to by your
 
 ## RAG Workflow Description
 
-Replace this section with a short explanation of your completed RAG workflow.
-
-Your explanation should include:
-
-- How the app receives a question
-- How the app retrieves relevant chunks
-- How the prompt is built
-- How the model service is called
-- How the answer and sources are returned
-
-Suggested format:
-
-```text
-The frontend sends the user's question to the Flask /api/ask route.
-The backend sends the question to the RAG service.
-The RAG service retrieves relevant chunks from the vector database.
-The retrieved chunks are combined with the user's question in a prompt.
-The prompt is sent to the model service.
-The backend returns the generated answer and supporting sources to the frontend.
-```
+1. The React frontend sends `{ "question": "..." }` to `POST /api/ask`.
+2. `app.py` checks that the question is a non-blank string (otherwise it returns a 400 error) and passes it to `answer_question()` in `rag_service.py`.
+3. `retrieve_relevant_chunks()` in `vector_store.py` asks Ollama to turn the question into an embedding, then queries Chroma for the `TOP_K` closest chunks (cosine distance).
+4. If nothing is found, the assistant returns a safe "not enough information" message and an empty `sources` list, and the model is never called.
+5. Otherwise `build_prompt()` combines the question with the retrieved chunks and tells the model to use only that context.
+6. `call_generation_model()` sends the prompt to Ollama's `/api/generate` endpoint (non-streaming, temperature from `.env`).
+7. The route returns `{ "answer": "...", "sources": [ { title, source, chunk_index, excerpt } ] }` and the frontend displays both.
+8. If Ollama is not running or a model is missing, the route returns a 502 with a helpful message that the frontend shows in its error box.
 
 ---
 
@@ -503,25 +497,20 @@ Record your observations in the table below.
 
 | Sample Question | Was the Answer Relevant? | Were Useful Sources Returned? | Notes |
 |---|---|---|---|
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
+|What should I do if I cannot log into the product dashboard?  | yes |yes  |Source: Product Support Guide | product_support.txt| 
+|What should employees do with suspicious emails?  |yes |yes  |Source: Security Guidelines | security_guidelines.txt  |
+|What should a support agent do if the knowledge base does not answer a question?  |yes  |yes  |Source 1: Workplace FAQ and Source 2: Product Support Guide|
 
 ---
 
 ## Known Limitations or Future Improvements
 
-Replace this section with notes after completing your project.
-
-Examples:
-
-- Improve chunking for longer documents.
-- Add clearer source display in the frontend.
-- Save chat history in a local database.
-- Add user feedback for helpful or unhelpful answers.
-- Improve prompt instructions for unsupported questions.
-- Expand the knowledge base with additional approved documents.
-- Improve error handling when the model service is unavailable.
+- The knowledge base is only four short files, so some questions cannot be answered.
+- Chunks are split by word count, not by section, so a chunk can start in the middle of a sentence.
+- There is no similarity cutoff: the closest chunks are always returned, even for an unrelated question. The prompt tells the model to say when the context is not enough, but a distance threshold would be more reliable.
+- Re-run `python seed_knowledge_base.py` after editing a knowledge base file. If you delete or rename a file, delete the `chroma_db` folder first so old chunks do not stay behind.
+- Answers depend on the small local model (llama3.2) and can still be imperfect, so important answers should be checked against the sources.
+- No chat history, streaming responses or user feedback buttons yet.
 
 ---
 

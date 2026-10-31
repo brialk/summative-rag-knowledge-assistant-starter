@@ -1,19 +1,15 @@
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
+# Secrets and local config
 .env
 
-# Flask / local files
-instance/
-*.sqlite
-*.db
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local vector database
 chroma_db/
 
 # Node
 node_modules/
 dist/
-
-# System
-.DS_Store

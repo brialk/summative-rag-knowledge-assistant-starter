@@ -3,7 +3,11 @@ from typing import Any
 import requests
 
 from config import Config
-from vector_store import retrieve_relevant_chunks
+from vector_store import (
+    REQUEST_TIMEOUT_SECONDS,
+    ModelServiceError,
+    retrieve_relevant_chunks,
+)
 
 
 def answer_question(question: str) -> dict[str, Any]:
@@ -62,6 +66,7 @@ Use only the provided context to answer the user's question.
 If the context does not contain enough information, say that you do not have enough information from the knowledge base.
 
 Keep the answer clear and practical.
+When it helps, mention the title of the source you used.
 Do not invent policies, steps, or facts that are not supported by the context.
 
 Context:
@@ -76,30 +81,31 @@ Answer:
 
 def call_generation_model(prompt: str) -> str:
     """
-    Send the final prompt to the configured generation model.
-
-    TODO:
-    - Send a POST request to the Ollama generation endpoint.
-    - Use Config.OLLAMA_BASE_URL.
-    - Use Config.GENERATION_MODEL.
-    - Use Config.TEMPERATURE.
-    - Request a non-streaming response.
-    - Return the generated response text.
-
-    Endpoint:
-        POST {OLLAMA_BASE_URL}/api/generate
-
-    Example request body:
-        {
-            "model": Config.GENERATION_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": Config.TEMPERATURE
-            }
-        }
+    Send the final prompt to the local Ollama model and return its answer text.
     """
-    raise NotImplementedError("TODO: Call the configured generation model.")
+    url = f"{Config.OLLAMA_BASE_URL.rstrip('/')}/api/generate"
+    payload = {
+        "model": Config.GENERATION_MODEL,
+        "prompt": prompt,
+        "stream": False,  # get the whole answer back in one piece
+        "options": {"temperature": Config.TEMPERATURE},
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError) as error:
+        raise ModelServiceError(
+            f"Could not generate an answer. Is Ollama running and is the "
+            f"'{Config.GENERATION_MODEL}' model pulled? ({error})"
+        ) from error
+
+    answer = data.get("response")
+    if not isinstance(answer, str) or not answer.strip():
+        raise ModelServiceError("The model returned an empty answer.")
+
+    return answer.strip()
 
 
 def format_sources(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:

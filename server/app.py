@@ -3,6 +3,7 @@ from flask_cors import CORS
 
 from config import Config
 from rag_service import answer_question
+from vector_store import ModelServiceError
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": Config.CLIENT_ORIGIN}})
@@ -24,41 +25,30 @@ def ask_question():
     """
     Receive a question from the frontend and return an answer with sources.
 
-    TODO:
-    - Read JSON from the request body.
-    - Validate that the question exists and is not blank.
-    - Call answer_question(question).
-    - Return the result as JSON.
-    - Return a helpful error response if the question is missing.
+    Steps:
+    1. Read the JSON body.
+    2. Check that a non-blank question was sent (otherwise return 400).
+    3. Call answer_question(question) to run the RAG workflow.
+    4. Return the answer and sources as JSON (or a 502 if the model service fails).
     """
-    data = request.get_json(silent=True) or {}
-    question = data.get("question", "").strip()
+    data = request.get_json(silent=True)
 
-    if not question:
-        return jsonify({"error": "Question is required."}), 400
+    # The body must be a JSON object like {"question": "..."}.
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be JSON with a 'question' field.", "sources": []}), 400
 
-    # TODO:
-    # Replace this starter response by calling answer_question(question).
-    #
-    # Expected return shape:
-    # {
-    #     "answer": "...",
-    #     "sources": [...]
-    # }
-    #
-    # Example:
-    # result = answer_question(question)
-    # return jsonify(result), 200
+    question = data.get("question")
+    if not isinstance(question, str) or not question.strip():
+        return jsonify({"error": "Question is required.", "sources": []}), 400
 
-    return jsonify(
-        {
-            "error": (
-                "The /api/ask route is connected, but the RAG workflow is not implemented yet. "
-                "Complete the TODO in server/app.py."
-            ),
-            "sources": [],
-        }
-    ), 501
+    try:
+        result = answer_question(question.strip())
+    except ModelServiceError as error:
+        # The model service (Ollama) is down or failed: a 502 means
+        # "the service behind me had a problem".
+        return jsonify({"error": str(error), "sources": []}), 502
+
+    return jsonify(result), 200
 
 
 if __name__ == "__main__":
